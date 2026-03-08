@@ -6,7 +6,7 @@ uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, System.Net.URLClient,
   System.Net.HttpClient, System.Net.HttpClientComponent, Vcl.ExtCtrls,
-  Vcl.StdCtrls,System.JSON,system.Threading,vcl.Clipbrd,Vcl.Menus;
+  Vcl.StdCtrls,System.JSON,system.Threading,vcl.Clipbrd,Vcl.Menus,translator;
 
 type
   TForm1 = class(TForm)
@@ -30,8 +30,10 @@ type
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure TrayIcon1DblClick(Sender: TObject);
   private
+   FHotKeyRegistered: Boolean;
    FCurrentDirection: Integer; // 1 - en->ru, 2 - ru->en
    FMinimized: Boolean;
+   procedure WMHotKey(var Message: TWMHotKey); message WM_HOTKEY;
    procedure ShowAppClick(Sender: TObject);
    procedure CloseAppClick(Sender: TObject);
    { Private declarations }
@@ -48,13 +50,7 @@ implementation
 {$R *.dfm}
 
 procedure TForm1.Button1Click(Sender: TObject);
-var
-  HttpClient: TNetHTTPClient;
-  URL: string;
-  Response: IHTTPResponse;
-  RawResponse: string;
 begin
-  // Проверка на пустой ввод
   if Trim(Memo1.Text) = '' then
   begin
     ShowMessage('Введите текст для перевода');
@@ -65,73 +61,18 @@ begin
   Application.ProcessMessages;
 
   try
-    HttpClient := TNetHTTPClient.Create(nil);
-
-    // Используем Google Translate с правильным направлением
     if CurrentDirection = 1 then
-    begin
-      // en->ru
-      URL := 'https://translate.google.com/m?hl=en&sl=en&tl=ru&ie=UTF-8&prev=_m&q=' +
-             StringReplace(Memo1.Text, ' ', '+', [rfReplaceAll]);
-    end
+      Memo2.Text := TranslateText(Memo1.Text, 'en', 'ru')
     else
-    begin
-      // ru->en
-      URL := 'https://translate.google.com/m?hl=en&sl=ru&tl=en&ie=UTF-8&prev=_m&q=' +
-             StringReplace(Memo1.Text, ' ', '+', [rfReplaceAll]);
-    end;
-
-    Response := HttpClient.Get(URL);
-    if Response <> nil then
-    begin
-      RawResponse := Response.ContentAsString;
-
-      // Парсим результат из HTML
-      var StartPos := Pos('class="result-container">', RawResponse);
-      if StartPos > 0 then
-      begin
-        StartPos := StartPos + Length('class="result-container">');
-        var EndPos := Pos('</div>', RawResponse, StartPos);
-        if EndPos > StartPos then
-        begin
-          Memo2.Text := Copy(RawResponse, StartPos, EndPos - StartPos);
-        end
-        else
-        begin
-          Memo2.Text := 'Не удалось извлечь перевод';
-        end;
-      end
-      else
-      begin
-        // Альтернативный поиск
-        var Pos1 := Pos('<span class="t0">', RawResponse);
-        if Pos1 > 0 then
-        begin
-          Pos1 := Pos1 + Length('<span class="t0">');
-          var Pos2 := Pos('</span>', RawResponse, Pos1);
-          if Pos2 > Pos1 then
-          begin
-            Memo2.Text := Copy(RawResponse, Pos1, Pos2 - Pos1);
-          end;
-        end
-        else
-        begin
-          Memo2.Text := 'Не удалось найти перевод в ответе';
-        end;
-      end;
-    end
-    else
-    begin
-      Memo2.Text := 'Ошибка соединения с сервером';
-    end;
-
+      Memo2.Text := TranslateText(Memo1.Text, 'ru', 'en');
   except
     on E: Exception do
-    begin
       Memo2.Text := 'Ошибка: ' + E.Message;
-    end;
   end;
 end;
+
+
+
 
 
 procedure TForm1.Button2Click(Sender: TObject);
@@ -187,8 +128,6 @@ end;
 
 procedure TForm1.FormCreate(Sender: TObject);
 begin
-   // Регистрируем горячую клавишу Ctrl+Shift+T
-  RegisterHotKey(Handle, 1, MOD_CONTROL or MOD_SHIFT, Ord('T'));
     CurrentDirection := 1; // Начинаем с en->ru
   Label1.Caption := 'English';
   Label2.Caption := 'Russian';
@@ -196,8 +135,35 @@ begin
   TrayIcon1.Visible := True;
   TrayIcon1.Hint := 'LatorC7';
   FMinimized := False;
-end;
 
+  if RegisterHotKey(Handle, 1, MOD_CONTROL or MOD_SHIFT, Ord('T')) then
+  begin
+    FHotKeyRegistered := True;
+  end;
+  end;
+
+
+procedure TForm1.WMHotKey(var Message: TWMHotKey);
+begin
+  case Message.HotKey of
+    1: // Ctrl+Shift+T
+    begin
+      // Если форма видима, сворачиваем в трей
+      if Visible then
+      begin
+        Hide;
+      end
+      else
+      begin
+        // Если форма скрыта, показываем её
+        Show;
+        WindowState := wsNormal;
+        BringToFront;
+        SetForegroundWindow(Handle);
+      end;
+    end;
+  end;
+end;
 
 procedure TForm1.TrayIcon1Click(Sender: TObject);
 var
@@ -234,4 +200,6 @@ procedure TForm1.CloseAppClick(Sender: TObject);
 begin
   Application.Terminate;
 end;
+
+
 end.
